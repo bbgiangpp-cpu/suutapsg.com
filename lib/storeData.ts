@@ -5,11 +5,13 @@ export type Product = {
     name: string;
     category: ProductCategory;
     price: number;
+    quantity: number;
     year: string;
     origin: string;
     quality: string;
     description: string;
     image: string;
+    images?: string[];
     featured: boolean;
 };
 
@@ -19,6 +21,7 @@ export const products: Product[] = [
         name: "Tem thư Việt Nam 1890",
         category: "tem",
         price: 120000,
+        quantity: 1,
         year: "1890",
         origin: "Hà Nội",
         quality: "Mẫu hoàn chỉnh, nguyên bản",
@@ -32,6 +35,7 @@ export const products: Product[] = [
         name: "Bưu ảnh Indochine Sài Gòn",
         category: "buu-anh",
         price: 180000,
+        quantity: 1,
         year: "1928",
         origin: "Sài Gòn",
         quality: "Bản in rõ nét, lưu giữ tốt",
@@ -45,6 +49,7 @@ export const products: Product[] = [
         name: "Niêm phong nhà bưu điện",
         category: "niem",
         price: 95000,
+        quantity: 1,
         year: "1935",
         origin: "Nam Bộ",
         quality: "Đã được bảo quản cẩn thận",
@@ -58,6 +63,7 @@ export const products: Product[] = [
         name: "Tem thư quân đội 1954",
         category: "tem",
         price: 140000,
+        quantity: 1,
         year: "1954",
         origin: "Đà Nẵng",
         quality: "Hiếm, bền màu",
@@ -71,6 +77,7 @@ export const products: Product[] = [
         name: "Bưu ảnh Hà Nội 1930",
         category: "buu-anh",
         price: 220000,
+        quantity: 1,
         year: "1930",
         origin: "Hà Nội",
         quality: "Bản in đẹp, đủ điều kiện lưu giữ",
@@ -84,6 +91,7 @@ export const products: Product[] = [
         name: "Hồ sơ niêm giấy tờ xưa",
         category: "niem",
         price: 110000,
+        quantity: 1,
         year: "1942",
         origin: "Miền Trung",
         quality: "Nguyên bản, có dấu niêm",
@@ -97,6 +105,7 @@ export const products: Product[] = [
         name: "Tem thư Nam Bộ 1912",
         category: "tem",
         price: 165000,
+        quantity: 1,
         year: "1912",
         origin: "Sài Gòn",
         quality: "Số lượng ít, lớp màu đẹp",
@@ -110,6 +119,7 @@ export const products: Product[] = [
         name: "Bưu ảnh xe lửa cổ",
         category: "buu-anh",
         price: 150000,
+        quantity: 1,
         year: "1918",
         origin: "Miền Bắc",
         quality: "Mẫu in cổ, hồng ngoại sắc nét",

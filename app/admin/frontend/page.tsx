@@ -10,6 +10,7 @@ type FrontendSettings = {
     hotline: string;
     primaryColor: string;
     accentColor: string;
+    paymentQrUrl: string;
     showHotline: boolean;
     showHeroStats: boolean;
 };
@@ -22,6 +23,7 @@ const defaultSettings: FrontendSettings = {
     hotline: "0900 123 456",
     primaryColor: "#b96f36",
     accentColor: "#84512b",
+    paymentQrUrl: "",
     showHotline: true,
     showHeroStats: true,
 };
@@ -29,7 +31,25 @@ const defaultSettings: FrontendSettings = {
 export default function AdminFrontendPage() {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [message, setMessage] = useState("");
+    const [csrfToken, setCsrfToken] = useState("");
     const [settings, setSettings] = useState<FrontendSettings>(defaultSettings);
+
+    const ensureCsrfToken = async () => {
+        if (csrfToken) {
+            return csrfToken;
+        }
+
+        const res = await fetch("/api/admin/csrf", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        const token = String(data?.token || "");
+
+        if (res.ok && token) {
+            setCsrfToken(token);
+            return token;
+        }
+
+        return "";
+    };
 
     useEffect(() => {
         const verify = async () => {
@@ -38,6 +58,7 @@ export default function AdminFrontendPage() {
         };
 
         verify();
+        ensureCsrfToken();
     }, []);
 
     useEffect(() => {
@@ -69,9 +90,18 @@ export default function AdminFrontendPage() {
     };
 
     const handleSave = async () => {
+        const token = await ensureCsrfToken();
+        if (!token) {
+            setMessage("Không thể tạo CSRF token. Vui lòng tải lại trang.");
+            return;
+        }
+
         const res = await fetch("/api/admin/frontend-settings", {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": token,
+            },
             body: JSON.stringify(settings),
         });
 

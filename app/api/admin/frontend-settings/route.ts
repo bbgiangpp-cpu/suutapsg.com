@@ -21,6 +21,9 @@ export async function GET() {
               hotline: string;
               primaryColor: string;
               accentColor: string;
+              paymentQrUrl: string;
+              bankQrUrl: string;
+              momoQrUrl: string;
               showHotline: number;
               showHeroStats: number;
           }
@@ -48,6 +51,21 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json();
+    const bankQrUrl = String(body.bankQrUrl || "").trim();
+    const momoQrUrl = String(body.momoQrUrl || "").trim();
+
+    const isValidQrImage = (value: string) =>
+        !value ||
+        /^https?:\/\//i.test(value) ||
+        value.startsWith("/") ||
+        value.startsWith("data:image/");
+
+    if (!isValidQrImage(bankQrUrl) || !isValidQrImage(momoQrUrl)) {
+        return NextResponse.json(
+            { message: "Ảnh QR không hợp lệ" },
+            { status: 400 },
+        );
+    }
 
     db.prepare(
         `
@@ -58,6 +76,8 @@ export async function PUT(req: Request) {
             hotline = @hotline,
             primaryColor = @primaryColor,
             accentColor = @accentColor,
+            bankQrUrl = @bankQrUrl,
+            momoQrUrl = @momoQrUrl,
             showHotline = @showHotline,
             showHeroStats = @showHeroStats,
             updatedAt = CURRENT_TIMESTAMP
@@ -70,6 +90,8 @@ export async function PUT(req: Request) {
         hotline: body.hotline,
         primaryColor: body.primaryColor,
         accentColor: body.accentColor,
+        bankQrUrl,
+        momoQrUrl,
         showHotline: body.showHotline ? 1 : 0,
         showHeroStats: body.showHeroStats ? 1 : 0,
     });

@@ -6,14 +6,42 @@ const isAdmin = () =>
     cookies().get("admin_session")?.value === "authenticated" &&
     cookies().get("admin_role")?.value === "admin";
 
+const parseImages = (body: { images?: unknown; image?: unknown }) => {
+    const images = Array.isArray(body.images)
+        ? body.images.filter((item): item is string => typeof item === "string")
+        : [];
+
+    if (images.length) {
+        return images;
+    }
+
+    const fallback = String(body.image || "").trim();
+    return fallback ? [fallback] : [];
+};
+
 export async function GET() {
     if (!isAdmin()) {
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const products = db
+    const rows = db
         .prepare("SELECT * FROM products ORDER BY id DESC")
-        .all();
+        .all() as Array<Record<string, unknown> & { images: string }>;
+
+    const products = rows.map((row) => {
+        let images: string[] = [];
+        try {
+            const parsed = JSON.parse(row.images);
+            if (Array.isArray(parsed)) {
+                images = parsed.filter((item) => typeof item === "string");
+            }
+        } catch {
+            images = [];
+        }
+
+        return { ...row, images };
+    });
+
     return NextResponse.json({ products });
 }
 
@@ -23,20 +51,23 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const images = parseImages(body);
     const insert = db.prepare(`
-    INSERT INTO products (name, category, price, year, origin, quality, description, image, featured)
-    VALUES (@name, @category, @price, @year, @origin, @quality, @description, @image, @featured)
+    INSERT INTO products (name, category, price, quantity, year, origin, quality, description, image, images, featured)
+    VALUES (@name, @category, @price, @quantity, @year, @origin, @quality, @description, @image, @images, @featured)
   `);
 
     const result = insert.run({
         name: body.name,
         category: body.category,
         price: Number(body.price),
+        quantity: Number(body.quantity) || 0,
         year: body.year,
         origin: body.origin,
         quality: body.quality,
         description: body.description,
-        image: body.image,
+        image: images[0] || "",
+        images: JSON.stringify(images),
         featured: body.featured ? 1 : 0,
     });
 
@@ -52,17 +83,20 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json();
+    const images = parseImages(body);
     db.prepare(
         `
     UPDATE products
     SET name = @name,
         category = @category,
         price = @price,
+        quantity = @quantity,
         year = @year,
         origin = @origin,
         quality = @quality,
         description = @description,
         image = @image,
+        images = @images,
         featured = @featured
     WHERE id = @id
   `,
@@ -71,11 +105,13 @@ export async function PUT(req: Request) {
         name: body.name,
         category: body.category,
         price: Number(body.price),
+        quantity: Number(body.quantity) || 0,
         year: body.year,
         origin: body.origin,
         quality: body.quality,
         description: body.description,
-        image: body.image,
+        image: images[0] || "",
+        images: JSON.stringify(images),
         featured: body.featured ? 1 : 0,
     });
 

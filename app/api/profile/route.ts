@@ -1,7 +1,22 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getClientIp, rateLimit } from "@/lib/security";
 
 export async function GET(req: Request) {
+    const ip = getClientIp(req);
+    const limiter = rateLimit({
+        key: `profile-get:${ip}`,
+        limit: 120,
+        windowMs: 10 * 60 * 1000,
+    });
+
+    if (!limiter.allowed) {
+        return NextResponse.json(
+            { message: "Bạn gửi quá nhiều yêu cầu. Vui lòng thử lại sau." },
+            { status: 429 },
+        );
+    }
+
     const { searchParams } = new URL(req.url);
     const email = (searchParams.get("email") || "").trim().toLowerCase();
 
@@ -40,6 +55,20 @@ export async function GET(req: Request) {
 }
 
 export async function PUT(req: Request) {
+    const ip = getClientIp(req);
+    const limiter = rateLimit({
+        key: `profile-put:${ip}`,
+        limit: 40,
+        windowMs: 10 * 60 * 1000,
+    });
+
+    if (!limiter.allowed) {
+        return NextResponse.json(
+            { message: "Bạn gửi quá nhiều yêu cầu. Vui lòng thử lại sau." },
+            { status: 429 },
+        );
+    }
+
     const body = await req.json();
     const email = String(body.email || "")
         .trim()
@@ -48,6 +77,11 @@ export async function PUT(req: Request) {
     if (!email) {
         return NextResponse.json({ message: "Thiếu email" }, { status: 400 });
     }
+
+    const requestedRole = String(body.role || "user")
+        .trim()
+        .toLowerCase();
+    const safeRole = requestedRole === "admin" ? "admin" : "user";
 
     db.prepare(
         `
@@ -76,7 +110,7 @@ export async function PUT(req: Request) {
         email,
         String(body.displayName || "").trim() || email.split("@")[0],
         String(body.initials || "").trim() || "US",
-        String(body.role || "user").trim() || "user",
+        safeRole,
         String(body.avatarUrl || "").trim(),
         String(body.phone || "").trim(),
         String(body.address || "").trim(),

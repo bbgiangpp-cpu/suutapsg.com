@@ -24,11 +24,13 @@ db.exec(`
     name TEXT NOT NULL,
     category TEXT NOT NULL,
     price INTEGER NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 0,
     year TEXT,
     origin TEXT,
     quality TEXT,
     description TEXT,
     image TEXT,
+    images TEXT NOT NULL DEFAULT '[]',
     featured INTEGER DEFAULT 0
   );
 
@@ -58,6 +60,13 @@ db.exec(`
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS user_credentials (
+        email TEXT PRIMARY KEY,
+        passwordHash TEXT NOT NULL,
+        passwordSalt TEXT NOT NULL,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS frontend_settings (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         brandName TEXT NOT NULL,
@@ -66,11 +75,41 @@ db.exec(`
         hotline TEXT NOT NULL,
         primaryColor TEXT NOT NULL,
         accentColor TEXT NOT NULL,
+        paymentQrUrl TEXT NOT NULL DEFAULT '',
+        bankQrUrl TEXT NOT NULL DEFAULT '',
+        momoQrUrl TEXT NOT NULL DEFAULT '',
         showHotline INTEGER NOT NULL DEFAULT 1,
         showHeroStats INTEGER NOT NULL DEFAULT 1,
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 `);
+
+if (!hasColumn("products", "images")) {
+    db.exec(
+        "ALTER TABLE products ADD COLUMN images TEXT NOT NULL DEFAULT '[]'",
+    );
+
+    const legacyProducts = db
+        .prepare(
+            "SELECT id, image FROM products WHERE image IS NOT NULL AND image != ''",
+        )
+        .all() as Array<{ id: number; image: string }>;
+
+    const setImages = db.prepare(
+        "UPDATE products SET images = ? WHERE id = ?",
+    );
+
+    for (const product of legacyProducts) {
+        setImages.run(JSON.stringify([product.image]), product.id);
+    }
+}
+
+if (!hasColumn("products", "quantity")) {
+    db.exec(
+        "ALTER TABLE products ADD COLUMN quantity INTEGER NOT NULL DEFAULT 0",
+    );
+    db.exec("UPDATE products SET quantity = 1 WHERE quantity = 0");
+}
 
 if (!hasColumn("orders", "paymentStatus")) {
     db.exec(
@@ -80,6 +119,27 @@ if (!hasColumn("orders", "paymentStatus")) {
 
 if (!hasColumn("orders", "status")) {
     db.exec("ALTER TABLE orders ADD COLUMN status TEXT DEFAULT 'pending'");
+}
+
+if (!hasColumn("frontend_settings", "paymentQrUrl")) {
+    db.exec(
+        "ALTER TABLE frontend_settings ADD COLUMN paymentQrUrl TEXT NOT NULL DEFAULT ''",
+    );
+}
+
+if (!hasColumn("frontend_settings", "bankQrUrl")) {
+    db.exec(
+        "ALTER TABLE frontend_settings ADD COLUMN bankQrUrl TEXT NOT NULL DEFAULT ''",
+    );
+    db.exec(
+        "UPDATE frontend_settings SET bankQrUrl = paymentQrUrl WHERE bankQrUrl = ''",
+    );
+}
+
+if (!hasColumn("frontend_settings", "momoQrUrl")) {
+    db.exec(
+        "ALTER TABLE frontend_settings ADD COLUMN momoQrUrl TEXT NOT NULL DEFAULT ''",
+    );
 }
 
 const frontendSettingsCount = db
@@ -99,9 +159,10 @@ if (frontendSettingsCount.count === 0) {
             hotline,
             primaryColor,
             accentColor,
+            paymentQrUrl,
             showHotline,
             showHeroStats
-        ) VALUES (1, ?, ?, ?, ?, ?, ?, 1, 1)
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, '', 1, 1)
     `,
     ).run(
         "SuutapSG",
@@ -119,8 +180,8 @@ const count = db.prepare("SELECT COUNT(*) as count FROM products").get() as {
 
 if (count.count === 0) {
     const insertProduct = db.prepare(`
-    INSERT INTO products (id, name, category, price, year, origin, quality, description, image, featured)
-    VALUES (@id, @name, @category, @price, @year, @origin, @quality, @description, @image, @featured)
+    INSERT INTO products (id, name, category, price, quantity, year, origin, quality, description, image, images, featured)
+    VALUES (@id, @name, @category, @price, @quantity, @year, @origin, @quality, @description, @image, @images, @featured)
   `);
 
     const insertMany = db.transaction((items: typeof seedProducts) => {
@@ -130,11 +191,17 @@ if (count.count === 0) {
                 name: item.name,
                 category: item.category,
                 price: item.price,
+                quantity: item.quantity,
                 year: item.year,
                 origin: item.origin,
                 quality: item.quality,
                 description: item.description,
                 image: item.image,
+                images: JSON.stringify(
+                    item.images && item.images.length
+                        ? item.images
+                        : [item.image],
+                ),
                 featured: item.featured ? 1 : 0,
             });
         }

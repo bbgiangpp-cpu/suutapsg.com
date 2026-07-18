@@ -10,3 +10,4 @@ yarn-error.log*
 pnpm-debug.log*
 data/*.db-wal
 data/*.db-shm
+tsconfig.tsbuildinfo

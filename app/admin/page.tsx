@@ -1,6 +1,14 @@
 ﻿"use client";
 
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+    ChangeEvent,
+    CSSProperties,
+    RefObject,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -9,11 +17,13 @@ type Product = {
     name: string;
     category: string;
     price: number;
+    quantity: number;
     year: string;
     origin: string;
     quality: string;
     description: string;
     image: string;
+    images: string[];
     featured: boolean;
 };
 
@@ -29,16 +39,52 @@ type Order = {
     createdAt: string;
 };
 
+type FrontendSettings = {
+    brandName: string;
+    heroTitle: string;
+    heroDescription: string;
+    hotline: string;
+    primaryColor: string;
+    accentColor: string;
+    paymentQrUrl: string;
+    bankQrUrl: string;
+    momoQrUrl: string;
+    showHotline: boolean;
+    showHeroStats: boolean;
+};
+
+const defaultFrontendSettings: FrontendSettings = {
+    brandName: "SuutapSG",
+    heroTitle: "Storefront chuyên nghiệp cho tem thư, bưu ảnh và niêm giấy xưa",
+    heroDescription:
+        "Trang này được nâng cấp thành storefront hoàn chỉnh với dữ liệu thực, giỏ hàng và form thanh toán mẫu, áp dụng mô hình Next.js hiện đại.",
+    hotline: "0900 123 456",
+    primaryColor: "#b96f36",
+    accentColor: "#84512b",
+    paymentQrUrl: "",
+    bankQrUrl: "",
+    momoQrUrl: "",
+    showHotline: true,
+    showHeroStats: true,
+};
+
+const toNonNegativeInt = (raw: string) => {
+    const digitsOnly = raw.replace(/[^0-9]/g, "");
+    return digitsOnly ? parseInt(digitsOnly, 10) : 0;
+};
+
 const emptyForm: Product = {
     id: 0,
     name: "",
     category: "tem",
     price: 0,
+    quantity: 0,
     year: "",
     origin: "",
     quality: "",
     description: "",
     image: "",
+    images: [],
     featured: false,
 };
 
@@ -53,15 +99,22 @@ const categoryLabel: Record<string, string> = {
 
 export default function AdminPage() {
     const router = useRouter();
+    const productImageInputRef = useRef<HTMLInputElement | null>(null);
+    const bankQrInputRef = useRef<HTMLInputElement | null>(null);
+    const momoQrInputRef = useRef<HTMLInputElement | null>(null);
     const [login, setLogin] = useState({
         email: "admin@suutapsg.com",
-        password: "admin123",
+        password: "",
     });
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [products, setProducts] = useState<Product[]>([]);
     const [orders, setOrders] = useState<Order[]>([]);
     const [message, setMessage] = useState("");
+    const [csrfToken, setCsrfToken] = useState("");
     const [form, setForm] = useState<Product>(emptyForm);
+    const [frontendSettings, setFrontendSettings] = useState<FrontendSettings>(
+        defaultFrontendSettings,
+    );
 
     const stats = useMemo(() => {
         return {
@@ -76,9 +129,10 @@ export default function AdminPage() {
     }, [products, orders]);
 
     const loadAdminData = async () => {
-        const [productRes, orderRes] = await Promise.all([
+        const [productRes, orderRes, frontendRes] = await Promise.all([
             fetch("/api/admin/products"),
             fetch("/api/admin/orders"),
+            fetch("/api/admin/frontend-settings"),
         ]);
 
         if (productRes.ok) {
@@ -89,6 +143,16 @@ export default function AdminPage() {
         if (orderRes.ok) {
             const orderData = await orderRes.json();
             setOrders(orderData.orders || []);
+        }
+
+        if (frontendRes.ok) {
+            const frontendData = await frontendRes.json();
+            if (frontendData.settings) {
+                setFrontendSettings((prev) => ({
+                    ...prev,
+                    ...frontendData.settings,
+                }));
+            }
         }
     };
 
@@ -103,14 +167,41 @@ export default function AdminPage() {
         await loadAdminData();
     };
 
+    const ensureCsrfToken = async () => {
+        if (csrfToken) {
+            return csrfToken;
+        }
+
+        const res = await fetch("/api/admin/csrf", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        const token = String(data?.token || "");
+
+        if (res.ok && token) {
+            setCsrfToken(token);
+            return token;
+        }
+
+        return "";
+    };
+
     useEffect(() => {
         verifySession();
+        ensureCsrfToken();
     }, []);
 
     const handleLogin = async () => {
+        const token = await ensureCsrfToken();
+        if (!token) {
+            setMessage("Không thể tạo CSRF token. Vui lòng tải lại trang.");
+            return;
+        }
+
         const res = await fetch("/api/admin/login", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": token,
+            },
             body: JSON.stringify(login),
         });
 
@@ -121,13 +212,27 @@ export default function AdminPage() {
             return;
         }
 
+        if (result.csrfToken) {
+            setCsrfToken(String(result.csrfToken));
+        }
+
         setIsLoggedIn(true);
         setMessage(result.message || "Đăng nhập admin thành công");
         await loadAdminData();
     };
 
     const handleLogout = async () => {
-        await fetch("/api/admin/logout", { method: "POST" });
+        const token = await ensureCsrfToken();
+        const logoutRes = await fetch("/api/admin/logout", {
+            method: "POST",
+            headers: {
+                "X-CSRF-Token": token,
+            },
+        });
+        const logoutResult = await logoutRes.json().catch(() => ({}));
+        if (logoutResult.csrfToken) {
+            setCsrfToken(String(logoutResult.csrfToken));
+        }
         setIsLoggedIn(false);
         setProducts([]);
         setOrders([]);
@@ -137,10 +242,19 @@ export default function AdminPage() {
     };
 
     const handleSave = async () => {
+        const token = await ensureCsrfToken();
+        if (!token) {
+            setMessage("Không thể tạo CSRF token. Vui lòng tải lại trang.");
+            return;
+        }
+
         const method = form.id ? "PUT" : "POST";
         const res = await fetch("/api/admin/products", {
             method,
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": token,
+            },
             body: JSON.stringify(form),
         });
 
@@ -156,14 +270,90 @@ export default function AdminPage() {
         await loadAdminData();
     };
 
+    const readFileAsDataUrl = (file: File) =>
+        new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+                resolve(
+                    typeof reader.result === "string" ? reader.result : "",
+                );
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+
+    const handleProductImagesChange = (
+        event: ChangeEvent<HTMLInputElement>,
+    ) => {
+        const files = event.target.files ? Array.from(event.target.files) : [];
+        event.target.value = "";
+
+        if (!files.length) {
+            return;
+        }
+
+        if (files.some((file) => !file.type.startsWith("image/"))) {
+            setMessage("Vui lòng chỉ chọn tệp ảnh hợp lệ.");
+            return;
+        }
+
+        Promise.all(files.map(readFileAsDataUrl))
+            .then((results) => {
+                setForm((prev) => {
+                    const nextImages = [...prev.images, ...results];
+                    return {
+                        ...prev,
+                        images: nextImages,
+                        image: nextImages[0] || "",
+                    };
+                });
+            })
+            .catch(() => {
+                setMessage("Không đọc được tệp ảnh. Vui lòng thử lại.");
+            });
+    };
+
+    const handleRemoveProductImage = (index: number) => {
+        setForm((prev) => {
+            const nextImages = prev.images.filter((_, i) => i !== index);
+            return { ...prev, images: nextImages, image: nextImages[0] || "" };
+        });
+    };
+
+    const handleSetMainProductImage = (index: number) => {
+        setForm((prev) => {
+            if (index === 0) {
+                return prev;
+            }
+            const nextImages = [...prev.images];
+            const [chosen] = nextImages.splice(index, 1);
+            nextImages.unshift(chosen);
+            return { ...prev, images: nextImages, image: nextImages[0] || "" };
+        });
+    };
+
     const handleEdit = (product: Product) => {
-        setForm(product);
+        const images =
+            product.images && product.images.length
+                ? product.images
+                : product.image
+                  ? [product.image]
+                  : [];
+        setForm({ ...product, images, image: images[0] || "" });
         setMessage(`Đang chỉnh sửa: ${product.name}`);
     };
 
     const handleDelete = async (id: number) => {
+        const token = await ensureCsrfToken();
+        if (!token) {
+            setMessage("Không thể tạo CSRF token. Vui lòng tải lại trang.");
+            return;
+        }
+
         const res = await fetch(`/api/admin/products?id=${id}`, {
             method: "DELETE",
+            headers: {
+                "X-CSRF-Token": token,
+            },
         });
         const result = await res.json().catch(() => ({}));
 
@@ -175,6 +365,58 @@ export default function AdminPage() {
         setMessage("Đã xoá sản phẩm");
         setForm(emptyForm);
         await loadAdminData();
+    };
+
+    const handleQrImageChange =
+        (field: "bankQrUrl" | "momoQrUrl") =>
+        (event: ChangeEvent<HTMLInputElement>) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+
+            if (!file) {
+                return;
+            }
+
+            if (!file.type.startsWith("image/")) {
+                setMessage("Vui lòng chọn tệp ảnh hợp lệ.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result =
+                    typeof reader.result === "string" ? reader.result : "";
+                setFrontendSettings((prev) => ({ ...prev, [field]: result }));
+            };
+            reader.onerror = () => {
+                setMessage("Không đọc được tệp ảnh. Vui lòng thử lại.");
+            };
+            reader.readAsDataURL(file);
+        };
+
+    const handleSavePaymentQr = async () => {
+        const token = await ensureCsrfToken();
+        if (!token) {
+            setMessage("Không thể tạo CSRF token. Vui lòng tải lại trang.");
+            return;
+        }
+
+        const res = await fetch("/api/admin/frontend-settings", {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": token,
+            },
+            body: JSON.stringify(frontendSettings),
+        });
+
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            setMessage(result.message || "Không thể lưu QR thanh toán.");
+            return;
+        }
+
+        setMessage("Đã lưu mã QR thanh toán cho website.");
     };
 
     if (!isLoggedIn) {
@@ -321,6 +563,42 @@ export default function AdminPage() {
                     />
                 </section>
 
+                <section style={{ ...panelStyle, marginTop: 20 }}>
+                    <div style={{ marginBottom: 16 }}>
+                        <h2 style={{ margin: 0 }}>Mã QR thanh toán</h2>
+                        <div style={{ color: "#8a6642", marginTop: 4 }}>
+                            Chọn ảnh QR trực tiếp từ máy cho từng phương thức
+                            thanh toán.
+                        </div>
+                    </div>
+                    <div
+                        style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 20,
+                        }}
+                    >
+                        <QrUploadField
+                            label="QR Chuyển khoản Ngân hàng"
+                            inputRef={bankQrInputRef}
+                            value={frontendSettings.bankQrUrl}
+                            onFileChange={handleQrImageChange("bankQrUrl")}
+                        />
+                        <QrUploadField
+                            label="QR MoMo"
+                            inputRef={momoQrInputRef}
+                            value={frontendSettings.momoQrUrl}
+                            onFileChange={handleQrImageChange("momoQrUrl")}
+                        />
+                    </div>
+                    <button
+                        onClick={handleSavePaymentQr}
+                        style={{ ...primaryButtonStyle, marginTop: 16 }}
+                    >
+                        Lưu mã QR thanh toán
+                    </button>
+                </section>
+
                 <p style={{ margin: "12px 0 0", color: "#9d6535" }}>
                     {message}
                 </p>
@@ -366,18 +644,52 @@ export default function AdminPage() {
                                 <option value="buu-anh">Bưu ảnh</option>
                                 <option value="niem">Niêm - giấy tờ xưa</option>
                             </select>
-                            <input
-                                type="number"
-                                value={form.price}
-                                onChange={(e) =>
-                                    setForm({
-                                        ...form,
-                                        price: Number(e.target.value),
-                                    })
-                                }
-                                placeholder="Giá"
-                                style={inputStyle}
-                            />
+                            <div
+                                style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr 1fr",
+                                    gap: 12,
+                                }}
+                            >
+                                <label style={fieldLabelStyle}>
+                                    Giá (đ)
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={String(form.price)}
+                                        onChange={(e) =>
+                                            setForm({
+                                                ...form,
+                                                price: toNonNegativeInt(
+                                                    e.target.value,
+                                                ),
+                                            })
+                                        }
+                                        placeholder="Giá"
+                                        style={inputStyle}
+                                    />
+                                </label>
+                                <label style={fieldLabelStyle}>
+                                    Số lượng
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={String(form.quantity)}
+                                        onChange={(e) =>
+                                            setForm({
+                                                ...form,
+                                                quantity: toNonNegativeInt(
+                                                    e.target.value,
+                                                ),
+                                            })
+                                        }
+                                        placeholder="Số lượng"
+                                        style={inputStyle}
+                                    />
+                                </label>
+                            </div>
                             <div
                                 style={{
                                     display: "grid",
@@ -434,14 +746,147 @@ export default function AdminPage() {
                                     resize: "vertical",
                                 }}
                             />
-                            <input
-                                value={form.image}
-                                onChange={(e) =>
-                                    setForm({ ...form, image: e.target.value })
-                                }
-                                placeholder="URL hình ảnh"
-                                style={inputStyle}
-                            />
+                            <div style={{ display: "grid", gap: 8 }}>
+                                <input
+                                    ref={productImageInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    onChange={handleProductImagesChange}
+                                    style={{ display: "none" }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        productImageInputRef.current?.click()
+                                    }
+                                    style={{
+                                        ...ghostButtonStyle,
+                                        width: "fit-content",
+                                    }}
+                                >
+                                    Chọn ảnh sản phẩm (có thể chọn nhiều ảnh)
+                                </button>
+                                {form.images.length ? (
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            gap: 10,
+                                            flexWrap: "wrap",
+                                        }}
+                                    >
+                                        {form.images.map((src, index) => (
+                                            <div
+                                                key={`${index}-${src.slice(0, 24)}`}
+                                                style={{
+                                                    display: "grid",
+                                                    gap: 4,
+                                                    justifyItems: "center",
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        position: "relative",
+                                                    }}
+                                                >
+                                                    <img
+                                                        src={src}
+                                                        alt={
+                                                            index === 0
+                                                                ? "Ảnh chính sản phẩm"
+                                                                : `Ảnh phụ ${index}`
+                                                        }
+                                                        style={{
+                                                            width: 72,
+                                                            height: 72,
+                                                            borderRadius: 10,
+                                                            border:
+                                                                index === 0
+                                                                    ? "2px solid #b96f36"
+                                                                    : "1px solid #e2ccaa",
+                                                            objectFit: "cover",
+                                                            background: "#fff",
+                                                        }}
+                                                    />
+                                                    {index === 0 ? (
+                                                        <span
+                                                            style={{
+                                                                position:
+                                                                    "absolute",
+                                                                top: -6,
+                                                                left: -6,
+                                                                background:
+                                                                    "#b96f36",
+                                                                color: "#fff",
+                                                                borderRadius: 999,
+                                                                fontSize: 10,
+                                                                fontWeight: 700,
+                                                                padding:
+                                                                    "2px 6px",
+                                                            }}
+                                                        >
+                                                            Chính
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        display: "flex",
+                                                        gap: 4,
+                                                    }}
+                                                >
+                                                    {index !== 0 ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleSetMainProductImage(
+                                                                    index,
+                                                                )
+                                                            }
+                                                            style={{
+                                                                ...ghostButtonStyle,
+                                                                padding:
+                                                                    "4px 8px",
+                                                                fontSize: 11,
+                                                            }}
+                                                        >
+                                                            Đặt chính
+                                                        </button>
+                                                    ) : null}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            handleRemoveProductImage(
+                                                                index,
+                                                            )
+                                                        }
+                                                        style={{
+                                                            ...ghostButtonStyle,
+                                                            padding: "4px 8px",
+                                                            fontSize: 11,
+                                                            background:
+                                                                "#7d2b2b",
+                                                            color: "#fff",
+                                                        }}
+                                                    >
+                                                        Xoá
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
+                                <div
+                                    style={{
+                                        color: "#8a6642",
+                                        fontSize: 12,
+                                    }}
+                                >
+                                    Ảnh "Chính" hiển thị trên danh sách sản
+                                    phẩm, các ảnh còn lại hiển thị trong trang
+                                    chi tiết.
+                                </div>
+                            </div>
                             <label
                                 style={{
                                     display: "flex",
@@ -601,6 +1046,7 @@ export default function AdminPage() {
                                         {categoryLabel[product.category] ||
                                             product.category}{" "}
                                         • {formatCurrency(product.price)} •{" "}
+                                        SL: {product.quantity} •{" "}
                                         {product.year}
                                     </div>
                                 </div>
@@ -637,6 +1083,61 @@ export default function AdminPage() {
     );
 }
 
+function QrUploadField({
+    label,
+    value,
+    inputRef,
+    onFileChange,
+}: {
+    label: string;
+    value: string;
+    inputRef: RefObject<HTMLInputElement>;
+    onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+    return (
+        <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ fontWeight: 600, color: "#5d4327" }}>{label}</div>
+            <input
+                ref={inputRef}
+                type="file"
+                accept="image/*"
+                onChange={onFileChange}
+                style={{ display: "none" }}
+            />
+            <div
+                style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    flexWrap: "wrap",
+                }}
+            >
+                <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    style={ghostButtonStyle}
+                >
+                    Chọn ảnh QR
+                </button>
+                {value.trim() ? (
+                    <img
+                        src={value}
+                        alt={`Xem trước ${label}`}
+                        style={{
+                            width: 110,
+                            height: 110,
+                            borderRadius: 10,
+                            border: "1px solid #e2ccaa",
+                            objectFit: "cover",
+                            background: "#fff",
+                        }}
+                    />
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
 function StatCard({ label, value }: { label: string; value: string | number }) {
     return (
         <div style={{ ...panelStyle, padding: 18 }}>
@@ -656,6 +1157,14 @@ const inputStyle: CSSProperties = {
     background: "#fffefb",
     fontSize: 14,
     outline: "none",
+};
+
+const fieldLabelStyle: CSSProperties = {
+    display: "grid",
+    gap: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#5d4327",
 };
 
 const panelStyle: CSSProperties = {

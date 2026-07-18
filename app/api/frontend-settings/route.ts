@@ -12,6 +12,9 @@ export async function GET() {
               hotline: string;
               primaryColor: string;
               accentColor: string;
+              paymentQrUrl: string;
+              bankQrUrl: string;
+              momoQrUrl: string;
               showHotline: number;
               showHeroStats: number;
           }
