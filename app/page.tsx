@@ -1499,7 +1499,7 @@ export default function HomePage() {
                                                     : {}),
                                             }}
                                         >
-                                            {categoryLabels[item]}
+                                            {categoryLabels[item as keyof typeof categoryLabels]}
                                         </button>
                                     ),
                                 )}
@@ -2142,7 +2142,7 @@ export default function HomePage() {
                         </div>
                         <button
                             onClick={() => {
-                                addToCart(selectedProduct.id);
+                                addToCart(selectedProduct);
                                 setSelectedProduct(null);
                             }}
                             style={styles.buyBtn}
